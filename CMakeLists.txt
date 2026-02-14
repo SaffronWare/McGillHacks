@@ -9,8 +9,8 @@ set(SHDR_DIR ${SRC_DIR}/shaders)
 set(ASSET_DIR ${CMAKE_SOURCE_DIR}/assets)
 
 file(GLOB SOURCES 
-	"${SRC_DIR}/cpp/*.cpp" 
-	"${SRC_DIR}/include/*.h" 
+	"${SRC_DIR}/*.cpp" 
+	"${SRC_DIR}/*.h" 
 	"${LIB_DIR}/ImGui/*.cpp"
 	"${LIB_DIR}/ImGui/*.h"
 	"${LIB_DIR}/ImGui/backends/*.h"
@@ -54,8 +54,8 @@ add_custom_command(
          "${LIB_DIR}/glfw-3.4/lib-vc-2022/glfw3.dll" ${CMAKE_BINARY_DIR}
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${SHDR_DIR} "${CMAKE_BINARY_DIR}/shaders"
-	COMMAND ${CMAKE_COMMAND} -E copy
-		"${SRC_DIR}/imgui.ini" ${CMAKE_BINARY_DIR}
+	#COMMAND ${CMAKE_COMMAND} -E copy
+		#"${SRC_DIR}/imgui.ini" ${CMAKE_BINARY_DIR}
 	COMMAND ${CMAKE_COMMAND} -E copy_directory
 		${ASSET_DIR} "${CMAKE_BINARY_DIR}/assets"
 )
