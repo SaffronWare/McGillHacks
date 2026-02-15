@@ -652,7 +652,7 @@ void Application::initializeGame()
         }
         else
         {
-            particle.color = Vec3(rng(1), rng(1), rng(1));
+            particle.color = Vec3(1, 1, 1);
         }
 
         particles.push_back(particle);
