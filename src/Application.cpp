@@ -5,6 +5,7 @@
 #include <sstream>
 #include <iostream>
 #include <cmath>
+#include <cstring>
 
 static std::string ReadFile(const char* path)
 {
@@ -257,8 +258,13 @@ void Application::renderImGui()
 
     if (game_state == GameState::INTRO)
     {
-        ImGui::TextWrapped("Welcome! You control the RED sphere. Your goal: Use gravity to cluster all 10 spheres as closely as possible over 10 rounds!");
-        ImGui::TextWrapped("Each round lasts 5 seconds. When paused, adjust the red sphere's velocity to guide the cluster.");
+        ImGui::TextWrapped("Welcome to 4D GRAVITY SHEPHERD!");
+        ImGui::Spacing();
+        ImGui::TextWrapped("NEW GAME: Move your camera to position yourself during each 5-second round.");
+        ImGui::TextWrapped("GOAL: Be within %.2f units of the RED sphere when time runs out!", catch_radius);
+        ImGui::TextWrapped("You get 1 POINT for each successful catch. Try to catch it all 10 rounds!");
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Controls: WASD/QE to move | Mouse to look | C for UI");
     }
     else if (game_state == GameState::SIMULATION)
     {
@@ -266,41 +272,94 @@ void Application::renderImGui()
         ImGui::SameLine();
         ImGui::ProgressBar(round_timer / ROUND_DURATION, ImVec2(-1, 0), "");
 
+        ImGui::Spacing();
+
+        // Show current distance to red ball
+        float current_distance = 0.0f;
+        if (particles.size() > 0)
+        {
+            current_distance = calculate4DDistance(cam.pos.normalized(), particles[0].position.normalized());
+        }
+
+        ImGui::Text("Distance to RED ball: %.3f", current_distance);
+
+        if (current_distance <= catch_radius)
+        {
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "IN RANGE! Stay here until time runs out!");
+        }
+        else
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "Too far! Move closer! (need < %.2f)", catch_radius);
+        }
+
+        ImGui::Spacing();
+        ImGui::Text("Current Score: %d / %d", total_points, MAX_ROUNDS);
+
         if (show_tutorial && current_round == 1)
         {
             ImGui::Separator();
             if (tutorial_step == 0)
-                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Watch the spheres interact through 4D gravity...");
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Use WASD/QE to move around in 4D space...");
             else if (tutorial_step == 1)
-                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "The RED sphere is yours to control!");
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Find the RED sphere and get close to it!");
             else if (tutorial_step == 2)
-                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "When paused, you'll be able to change its velocity...");
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Be within %.2f units when timer ends...", catch_radius);
             else if (tutorial_step == 3)
-                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.5f, 1.0f), "Get ready to input your move!");
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.5f, 1.0f), "Almost time! Are you in range?");
         }
         else
         {
-            ImGui::TextWrapped("Observing gravitational interactions... Time remaining: %.1f s", ROUND_DURATION - round_timer);
+            ImGui::Text("Time remaining: %.1f s", ROUND_DURATION - round_timer);
         }
     }
     else if (game_state == GameState::PAUSED)
     {
         ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "PAUSED - Round %d / %d", current_round, MAX_ROUNDS);
-        ImGui::TextWrapped("Adjust the RED sphere's velocity, then click 'Apply & Continue'");
+
+        ImGui::Spacing();
+
+        // Show if player caught the ball
+        if (caught_this_round)
+        {
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "SUCCESS! You caught the red ball!");
+            ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "+1 POINT");
+        }
+        else
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "MISSED! You weren't close enough.");
+            ImGui::Text("You needed to be within %.2f units", catch_radius);
+        }
+
+        ImGui::Spacing();
+        ImGui::Text("Total Score: %d / %d", total_points, MAX_ROUNDS);
+
+        ImGui::Separator();
+        ImGui::TextWrapped("Now set the RED ball's velocity for the next round.");
+        ImGui::TextWrapped("Note: You can only ROTATE camera when paused (no movement)");
     }
     else if (game_state == GameState::GAME_OVER)
     {
         ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "GAME COMPLETE!");
-        ImGui::Text("Final Clustering Score: %.1f / 100", final_clustering_score);
 
-        if (final_clustering_score > 80)
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Excellent! Master of 4D gravity!");
-        else if (final_clustering_score > 60)
-            ImGui::Text("Good job! The spheres are fairly clustered.");
-        else if (final_clustering_score > 40)
-            ImGui::Text("Not bad, but there's room for improvement.");
+        ImGui::Spacing();
+        ImGui::SetWindowFontScale(1.5f);
+        ImGui::Text("Final Score: %d / %d", total_points, MAX_ROUNDS);
+        ImGui::SetWindowFontScale(1.0f);
+
+        ImGui::Spacing();
+
+        // Score rating
+        float percentage = (total_points * 100.0f) / MAX_ROUNDS;
+        if (percentage == 100.0f)
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "PERFECT! You're a 4D master!");
+        else if (percentage >= 80.0f)
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.5f, 1.0f), "Excellent! Great spatial awareness!");
+        else if (percentage >= 60.0f)
+            ImGui::Text("Good job! You caught most of them.");
+        else if (percentage >= 40.0f)
+            ImGui::Text("Not bad! Keep practicing your 4D movement.");
         else
-            ImGui::Text("The spheres are quite scattered. Try again?");
+            ImGui::Text("Keep trying! 4D space is tricky.");
     }
 
     ImGui::End();
@@ -516,8 +575,8 @@ void Application::renderImGui()
             ImGui::Text("Spheres: %zu", particles.size());
             ImGui::Text("Game State: %s",
                 game_state == GameState::INTRO ? "Introduction" :
-                game_state == GameState::SIMULATION ? "Simulating" :
-                game_state == GameState::PAUSED ? "Paused for Input" :
+                game_state == GameState::SIMULATION ? "Round Active - MOVE!" :
+                game_state == GameState::PAUSED ? "Paused - Rotate Only" :
                 "Game Over");
 
             if (game_state != GameState::GAME_OVER && game_state != GameState::INTRO)
@@ -526,20 +585,48 @@ void Application::renderImGui()
 
                 ImGui::Separator();
 
-                // Show live clustering score (updated every 0.5s)
-                ImGui::Text("Clustering Analysis:");
-                ImGui::Text("  Score: %.1f / 100", current_clustering_score);
-                ImGui::ProgressBar(current_clustering_score / 100.0f, ImVec2(-1, 0));
+                ImGui::Text("SCORE: %d / %d points", total_points, MAX_ROUNDS);
+                ImGui::ProgressBar((float)total_points / MAX_ROUNDS, ImVec2(-1, 0));
 
-                ImGui::Text("  Update timer: %.2f / %.2f s",
-                    clustering_update_timer, CLUSTERING_UPDATE_INTERVAL);
+                ImGui::Spacing();
 
-                // Show a sample distance for debugging
-                if (particles.size() >= 2)
+                // Show distance to red ball with 4D breakdown
+                if (particles.size() > 0)
                 {
-                    float sample_dist = calculate4DDistance(particles[0].position, particles[1].position);
-                    ImGui::Text("  Sample distance (0-1): %.3f rad", sample_dist);
+                    Vec4 cam_norm = cam.pos.normalized();
+                    Vec4 red_norm = particles[0].position.normalized();
+                    float dist = calculate4DDistance(cam_norm, red_norm);
+
+                    ImGui::Text("Distance to RED: %.4f rad", dist);
+
+                    if (game_state == GameState::SIMULATION)
+                    {
+                        if (dist <= catch_radius)
+                            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "IN CATCH RANGE!");
+                        else
+                            ImGui::Text("Catch radius: %.4f rad", catch_radius);
+
+                        // Calculate 3D vs 4D distance
+                        float dx = cam_norm.x - red_norm.x;
+                        float dy = cam_norm.y - red_norm.y;
+                        float dz = cam_norm.z - red_norm.z;
+                        float dw = cam_norm.w - red_norm.w;
+                        float distance_3d = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+                        ImGui::Spacing();
+                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "3D dist (visual): %.3f", distance_3d);
+                        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.8f, 1.0f), "4D dist (actual): %.4f", dist);
+                        ImGui::TextColored(ImVec4(1.0f, 0.5f, 1.0f, 1.0f), "W difference: %.3f", std::abs(dw));
+
+                        if (distance_3d < 0.3f && dist > catch_radius)
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "⚠ Close in 3D, FAR in W!");
+                        }
+                    }
                 }
+
+                ImGui::Spacing();
+                ImGui::Text("This round: %s", caught_this_round ? "CAUGHT!" : "Not yet...");
             }
 
             ImGui::Spacing();
@@ -554,6 +641,14 @@ void Application::renderImGui()
                     particles.size() * sizeof(ParticleGPU),
                     particles.data(),
                     GL_DYNAMIC_READ);
+            }
+
+            ImGui::Spacing();
+
+            // Catch radius adjustment
+            if (ImGui::SliderFloat("Catch Radius", &catch_radius, 0.1f, 1.0f, "%.2f"))
+            {
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Smaller = Harder!");
             }
         }
 
@@ -573,7 +668,7 @@ void Application::renderImGui()
             if (!music_loaded)
             {
                 ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "Music file not found!");
-                ImGui::TextWrapped("Place audio/background.wav in your project directory");
+                ImGui::TextWrapped("Place audio/background.mp3 in your project directory");
                 ImGui::Spacing();
                 ImGui::Text("Supported formats: MP3, WAV");
             }
@@ -628,11 +723,20 @@ void Application::initializeGame()
 {
     particles.clear();
 
+    // Reset game state
+    game_state = GameState::INTRO;
+    current_round = 0;
+    round_timer = 0.0f;
+    tutorial_step = 0;
+    show_tutorial = true;
+    total_points = 0;
+    caught_this_round = false;
+
     // Create 10 spheres with varying sizes
     // Index 0 = Red ball (largest, player-controlled)
     float sizes[10] = { 0.08f, 0.04f, 0.045f, 0.05f, 0.035f, 0.055f, 0.04f, 0.038f, 0.042f, 0.048f };
 
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < 10; i++)
     {
         ParticleGPU particle;
 
@@ -642,33 +746,44 @@ void Application::initializeGame()
         // Random initial velocity
         particle.velocity = Vec4(rng(2) - 1, rng(2) - 1, rng(2) - 1, rng(2) - 1).normalized() * 0.3f;
 
-        particle.radius = sizes[i]/8.0f;
+        particle.radius = sizes[i];
 
         // First one is red (player ball), others are random colors
         if (i == 0)
         {
             particle.color = Vec3(1.0f, 0.0f, 0.0f);  // Red
-            particle.radius *= 4.0f;
         }
         else
         {
-            particle.color = Vec3(1, 1, 1);
+            particle.color = Vec3(rng(1), rng(1), rng(1));
         }
 
         particles.push_back(particle);
     }
+}
 
-    // Reset game state
-    game_state = GameState::INTRO;
-    current_round = 0;
-    round_timer = 0.0f;
-    tutorial_step = 0;
-    show_tutorial = true;
+bool Application::checkIfCaught()
+{
+    if (particles.size() == 0) return false;
+
+    // Calculate geodesic distance from camera to red ball on the 4-sphere
+    // Both positions must be normalized to lie on the unit 4-sphere
+    Vec4 red_ball_pos = particles[0].position.normalized();
+    Vec4 camera_pos = cam.pos.normalized();
+
+    // Use geodesic distance formula: d = arccos(⟨a,b⟩)
+    // This measures the shortest path along the curved 4D surface
+    float distance = calculate4DDistance(camera_pos, red_ball_pos);
+
+    std::cout << "  Checking catch: geodesic distance = " << distance
+        << " radians (" << (distance * 180.0f / 3.14159f) << " degrees)" << std::endl;
+
+    return distance <= catch_radius;
 }
 
 void Application::updateGameState(float dt)
 {
-    // Update clustering score periodically
+    // Update clustering score periodically (for compatibility/display)
     clustering_update_timer += dt;
     if (clustering_update_timer >= CLUSTERING_UPDATE_INTERVAL)
     {
@@ -685,11 +800,49 @@ void Application::updateGameState(float dt)
             round_timer = 0.0f;
             game_state = GameState::SIMULATION;
             current_round = 1;
+            caught_this_round = false;
         }
         break;
 
     case GameState::SIMULATION:
         round_timer += dt;
+
+        // Print distance to console every 0.5 seconds
+        if ((int)(round_timer * 2) != (int)((round_timer - dt) * 2))  // Trigger every 0.5s
+        {
+            if (particles.size() > 0)
+            {
+                Vec4 cam_norm = cam.pos.normalized();
+                Vec4 red_norm = particles[0].position.normalized();
+                float dist = calculate4DDistance(cam_norm, red_norm);
+
+                // Calculate 3D distance for comparison
+                float dx = cam_norm.x - red_norm.x;
+                float dy = cam_norm.y - red_norm.y;
+                float dz = cam_norm.z - red_norm.z;
+                float dw = cam_norm.w - red_norm.w;
+                float distance_3d = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+                std::cout << "\n=== Round " << current_round << " - Distance Check ===" << std::endl;
+                std::cout << "Camera: (" << cam_norm.x << ", " << cam_norm.y << ", "
+                    << cam_norm.z << ", " << cam_norm.w << ")" << std::endl;
+                std::cout << "RED:    (" << red_norm.x << ", " << red_norm.y << ", "
+                    << red_norm.z << ", " << red_norm.w << ")" << std::endl;
+                std::cout << "3D Distance (X,Y,Z only): " << distance_3d << std::endl;
+                std::cout << "4D Geodesic Distance:     " << dist << std::endl;
+                std::cout << "W Component Difference:   " << std::abs(dw) << std::endl;
+                std::cout << "Catch radius:             " << catch_radius << std::endl;
+
+                if (dist <= catch_radius)
+                {
+                    std::cout << "  >> IN CATCH RANGE! <<" << std::endl;
+                }
+                else if (distance_3d < 0.3f && dist > catch_radius)
+                {
+                    std::cout << "  >> WARNING: Close in 3D but FAR in 4D (check W!) <<" << std::endl;
+                }
+            }
+        }
 
         // Progress tutorial
         if (show_tutorial)
@@ -701,6 +854,23 @@ void Application::updateGameState(float dt)
 
         if (round_timer >= ROUND_DURATION)
         {
+            // Check if player caught the red ball at end of round
+            if (checkIfCaught())
+            {
+                caught_this_round = true;
+                total_points++;
+                std::cout << "=== ROUND " << current_round << " RESULT: CAUGHT! ===" << std::endl;
+                std::cout << "Total Points: " << total_points << " / " << MAX_ROUNDS << std::endl;
+            }
+            else
+            {
+                caught_this_round = false;
+                float final_dist = calculate4DDistance(cam.pos.normalized(), particles[0].position.normalized());
+                std::cout << "=== ROUND " << current_round << " RESULT: MISSED ===" << std::endl;
+                std::cout << "Final distance: " << final_dist << " (needed: " << catch_radius << ")" << std::endl;
+                std::cout << "Total Points: " << total_points << " / " << MAX_ROUNDS << std::endl;
+            }
+
             game_state = GameState::PAUSED;
             round_timer = 0.0f;
             show_velocity_editor = true;
@@ -731,22 +901,38 @@ void Application::updateGameState(float dt)
 
 float Application::calculate4DDistance(const Vec4& a, const Vec4& b)
 {
-    // Calculate geodesic distance on 4-sphere surface
-    // Both points should be normalized (on unit sphere)
+    // Calculate geodesic distance on 4-sphere surface using the Riemannian metric
+    // For a unit 4-sphere (S^3 embedded in R^4), the geodesic distance between
+    // two points is the length of the shortest arc connecting them on the sphere.
+    // 
+    // Formula: d(a,b) = arccos(⟨a,b⟩)
+    // where ⟨a,b⟩ is the dot product and both points are normalized to unit length.
+    // 
+    // This gives the arc length in radians. The actual distance along the curved
+    // surface is this value times the radius (which is 1 for a unit sphere).
+    // 
+    // Maximum geodesic distance on a sphere is π (half the circumference).
+
+    // Ensure both points are on the unit sphere
     Vec4 a_norm = a.normalized();
     Vec4 b_norm = b.normalized();
 
+    // Calculate dot product: ⟨a,b⟩ = a·b = a_x*b_x + a_y*b_y + a_z*b_z + a_w*b_w
     float dot_product = a_norm.x * b_norm.x +
         a_norm.y * b_norm.y +
         a_norm.z * b_norm.z +
         a_norm.w * b_norm.w;
 
-    // Clamp to avoid numerical issues with acos
+    // Clamp to [-1, 1] to avoid numerical issues with acos
+    // (floating point errors can push dot product slightly outside valid range)
     if (dot_product < -1.0f) dot_product = -1.0f;
     if (dot_product > 1.0f) dot_product = 1.0f;
 
-    // Arc length on unit sphere (geodesic distance)
-    return std::acos(dot_product);
+    // Arc length on unit sphere (geodesic distance in radians)
+    // This is the true distance along the curved 4D surface
+    float geodesic_distance = std::acos(dot_product);
+
+    return geodesic_distance;
 }
 
 float Application::calculateClusteringScore()
@@ -818,21 +1004,27 @@ void Application::applyRedBallVelocity()
 void Application::initAudio()
 {
 #ifdef _WIN32
+    std::cout << "=== Audio Initialization ===" << std::endl;
+    std::cout << "Attempting to open audio file..." << std::endl;
+
     // Open the audio device using MCI
     std::string open_command = "open \"audio/background.wav\" type waveaudio alias " + audio_alias;
+    std::cout << "Command: " << open_command << std::endl;
+
     MCIERROR error = mciSendStringA(open_command.c_str(), NULL, 0, NULL);
 
     if (error != 0)
     {
         char error_text[256];
         mciGetErrorStringA(error, error_text, sizeof(error_text));
-        std::cerr << "Warning: Failed to open audio: " << error_text << std::endl;
+        std::cerr << "ERROR: Failed to open audio: " << error_text << std::endl;
         std::cerr << "Make sure audio/background.wav exists in your project directory" << std::endl;
         music_loaded = false;
         audio_device_open = false;
         return;
     }
 
+    std::cout << "Audio file opened successfully!" << std::endl;
     audio_device_open = true;
     music_loaded = true;
 
@@ -840,10 +1032,18 @@ void Application::initAudio()
     std::string format_command = "set " + audio_alias + " time format milliseconds";
     mciSendStringA(format_command.c_str(), NULL, 0, NULL);
 
+    // Get audio length
+    char length_buffer[128];
+    std::string status_command = "status " + audio_alias + " length";
+    mciSendStringA(status_command.c_str(), length_buffer, sizeof(length_buffer), NULL);
+    std::cout << "Audio length: " << length_buffer << " ms" << std::endl;
+
     std::cout << "Audio initialized successfully" << std::endl;
+    std::cout << "Music enabled: " << (music_enabled ? "YES" : "NO") << std::endl;
 
     if (music_enabled)
     {
+        std::cout << "Starting playback..." << std::endl;
         updateAudio();
     }
 #else
@@ -856,25 +1056,52 @@ void Application::initAudio()
 void Application::updateAudio()
 {
 #ifdef _WIN32
-    if (!audio_device_open) return;
+    if (!audio_device_open)
+    {
+        std::cout << "Audio device not open, cannot update" << std::endl;
+        return;
+    }
 
     if (music_enabled)
     {
-        // Set volume (0-1000 for MCI)
-        int volume = (int)(music_volume * 10.0f);
-        std::string volume_command = "setaudio " + audio_alias + " volume to " + std::to_string(volume);
-        mciSendStringA(volume_command.c_str(), NULL, 0, NULL);
+        std::cout << "Updating audio - Playing music at volume " << music_volume << "%" << std::endl;
 
-        // Stop first (to restart if already playing)
-        std::string stop_command = "stop " + audio_alias;
-        mciSendStringA(stop_command.c_str(), NULL, 0, NULL);
+        // Set volume using waveOutSetVolume (MCI setaudio doesn't work reliably)
+        // Volume is 0-65535 for each channel (left and right)
+        DWORD volume_value = (DWORD)(music_volume / 100.0f * 0xFFFF);
+        volume_value = (volume_value << 16) | volume_value;  // Set both channels
+        waveOutSetVolume(0, volume_value);
+        std::cout << "System volume adjusted" << std::endl;
 
-        // Play with repeat
-        std::string play_command = "play " + audio_alias + " from 0 repeat";
-        mciSendStringA(play_command.c_str(), NULL, 0, NULL);
+        // Seek to beginning
+        std::string seek_command = "seek " + audio_alias + " to start";
+        mciSendStringA(seek_command.c_str(), NULL, 0, NULL);
+
+        // Play with repeat (correct syntax)
+        std::string play_command = "play " + audio_alias + " repeat";
+        std::cout << "Play command: " << play_command << std::endl;
+        MCIERROR play_error = mciSendStringA(play_command.c_str(), NULL, 0, NULL);
+
+        if (play_error != 0)
+        {
+            char error_text[256];
+            mciGetErrorStringA(play_error, error_text, sizeof(error_text));
+            std::cout << "ERROR playing audio: " << error_text << std::endl;
+        }
+        else
+        {
+            std::cout << "Audio playback started successfully!" << std::endl;
+        }
+
+        // Check status
+        char status_buffer[128];
+        std::string status_command = "status " + audio_alias + " mode";
+        mciSendStringA(status_command.c_str(), status_buffer, sizeof(status_buffer), NULL);
+        std::cout << "Audio status: " << status_buffer << std::endl;
     }
     else
     {
+        std::cout << "Music disabled, stopping playback" << std::endl;
         std::string stop_command = "stop " + audio_alias;
         mciSendStringA(stop_command.c_str(), NULL, 0, NULL);
     }
@@ -986,23 +1213,28 @@ int Application::run()
         {
             glfwGetCursorPos(window, &nx, &ny);
 
-            cam.yaw((nx - ox) * 0.05 * dt);
-            cam.pitch((ny - oy) * 0.05 * dt);
+            // Always allow rotation
+            cam.yaw((nx - ox) * 0.1 * dt);
+            cam.pitch((ny - oy) * 0.1 * dt);
 
             ox = nx; oy = ny;
 
-            if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-                cam.move_forward(dt);
-            if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-                cam.move_forward(-dt);
-            if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-                cam.move_right(dt);
-            if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-                cam.move_right(-dt);
-            if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
-                cam.move_up(dt);
-            if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-                cam.move_up(-dt);
+            // Only allow movement during SIMULATION (not during PAUSED)
+            if (game_state == GameState::SIMULATION)
+            {
+                if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+                    cam.move_forward(dt);
+                if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+                    cam.move_forward(-dt);
+                if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+                    cam.move_right(dt);
+                if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+                    cam.move_right(-dt);
+                if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+                    cam.move_up(dt);
+                if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+                    cam.move_up(-dt);
+            }
         }
         else
         {
@@ -1020,10 +1252,18 @@ int Application::run()
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleSSBO);
 
             glDispatchCompute(particles.size() / 3 + 1, 1, 1);
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleSSBO);
 
             // make writes visible
-            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+            // Read back updated positions from GPU to CPU
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
+            void* ptr = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
+            if (ptr)
+            {
+                memcpy(particles.data(), ptr, particles.size() * sizeof(ParticleGPU));
+                glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+            }
         }
 
         // ---- RENDERING ----

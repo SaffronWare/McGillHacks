@@ -45,6 +45,7 @@ private:
 	void startNewRound();
 	void applyRedBallVelocity();
 	void toggleFullscreen();
+	bool checkIfCaught();  // New method for catch detection
 
 	// Audio methods
 	void initAudio();
@@ -86,10 +87,17 @@ private:
 
 
 	enum class GameState {
+<<<<<<< HEAD
 		INTRO,           
 		SIMULATION,      
 		PAUSED,          
 		GAME_OVER        
+=======
+		INTRO,           // Game introduction
+		SIMULATION,      // Particles moving - player can move camera
+		PAUSED,          // Frozen for player input - can only rotate
+		GAME_OVER        // All rounds complete
+>>>>>>> ddadc5961ad771d90424a05fef99b974b27e8e6b
 	};
 
 	GameState game_state = GameState::INTRO;
@@ -105,12 +113,23 @@ private:
 	bool show_tutorial = true;
 	int tutorial_step = 0;
 
+<<<<<<< HEAD
 	
 	float final_clustering_score = 0.0f;
 	float current_clustering_score = 0.0f;
 	float clustering_update_timer = 0.0f;
 	const float CLUSTERING_UPDATE_INTERVAL = 0.5f; 
 
+=======
+	// Results - new catch mechanic
+	int total_points = 0;
+	float catch_radius = 0.7f;  // Distance threshold to catch red ball
+	bool caught_this_round = false;
+	float final_clustering_score = 0.0f;  // Keep for compatibility
+	float current_clustering_score = 0.0f;
+	float clustering_update_timer = 0.0f;
+	const float CLUSTERING_UPDATE_INTERVAL = 0.5f;
+>>>>>>> ddadc5961ad771d90424a05fef99b974b27e8e6b
 
 	bool show_velocity_arrow = false;
 
