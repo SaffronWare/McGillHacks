@@ -12,7 +12,7 @@ uniform vec4 right;
 uniform vec4 front;
 uniform float u_time;
 
-float focal = 2;
+float focal = 1;
 
 struct Sphere
 {
