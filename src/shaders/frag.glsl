@@ -97,7 +97,7 @@ vec3 sky(vec4 rd)
 
     float rnd = hash3(cell);
 
-    vec3 col = vec3(0.01,0.015,0.03); // base space color
+    vec3 col = vec3(0.01,0.015,0.03); 
 
     if(rnd < 0.012)
     {
@@ -108,21 +108,20 @@ vec3 sky(vec4 rd)
         ) - 0.5;
 
         float dist = length(local - offset);
-        float glow = exp(-150.0*dist);
+        float glow = exp(-1.0*dist);
 
         float brightness = 0.7 + 2.0*fract(rnd*50.0);
         col += vec3(1.0,0.95,0.9)*glow*brightness;
     }
 
-    // faint galaxy band
+  
     float band = exp(-6.0*abs(d.y));
     col += vec3(0.15,0.18,0.25)*band*0.4;
 
     return col;
 }
 
-//////////////////////////////////////////////////////
-// MAIN
+
 void main()
 {
     // build ray in tangent space
