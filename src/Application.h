@@ -15,6 +15,13 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
+// Windows Audio
+#ifdef _WIN32
+#include <windows.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
+#endif
+
 struct ParticleGPU
 {
 	Vec4 position;
@@ -46,6 +53,11 @@ private:
 	void applyRedBallVelocity();
 	void toggleFullscreen();
 
+	// Audio methods
+	void initAudio();
+	void updateAudio();
+	void stopAudio();
+
 	// Rendering state
 	GLuint pos_id;
 	GLuint front_id;
@@ -63,7 +75,7 @@ private:
 	int w;
 	int h;
 
-	// Arrow rendering
+	// Arrow rendering (unused - kept for compatibility)
 	GLuint u_show_arrow;
 	GLuint u_arrow_start;
 	GLuint u_arrow_direction;
@@ -94,7 +106,7 @@ private:
 	const float ROUND_DURATION = 5.0f;
 
 	// Red ball (player-controlled) - always particles[0]
-	Vec4 red_ball_velocity_input = Vec4(0, 0, 0, 0);
+	Vec4 red_ball_velocity_input = Vec4(0.5, 0.5, 0, 0);  // Start with visible default
 	float velocity_magnitude = 0.5f;
 
 	// Tutorial state
@@ -109,6 +121,13 @@ private:
 
 	// Velocity arrow visualization
 	bool show_velocity_arrow = false;
+
+	// Audio state
+	bool music_enabled = true;
+	bool music_loaded = false;
+	float music_volume = 50.0f;  // 0-100
+	bool audio_device_open = false;
+	std::string audio_alias = "BGMusic";
 
 	// ImGui state variables
 	bool show_demo_window = false;

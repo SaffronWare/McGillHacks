@@ -122,6 +122,9 @@ Application::Application()
     // Initialize ImGui
     initImGui();
 
+    // Initialize Audio
+    initAudio();
+
     // Create a VAO (core profile requires one bound for glDrawArrays)
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
@@ -180,6 +183,8 @@ Application::Application()
 
 Application::~Application()
 {
+    stopAudio();
+
     shutdownImGui();
 
     if (shader_program) glDeleteProgram(shader_program);
@@ -560,6 +565,53 @@ void Application::renderImGui()
             ImGui::ColorEdit3("Background", clear_color);
         }
 
+        ImGui::Separator();
+
+        // Audio controls
+        if (ImGui::CollapsingHeader("Audio"))
+        {
+            if (!music_loaded)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "Music file not found!");
+                ImGui::TextWrapped("Place audio/background.wav in your project directory");
+                ImGui::Spacing();
+                ImGui::Text("Supported formats: MP3, WAV");
+            }
+            else
+            {
+                // Enable/disable toggle
+                if (ImGui::Checkbox("Enable Music", &music_enabled))
+                {
+                    updateAudio();
+                }
+
+                ImGui::Spacing();
+
+                // Volume slider
+                if (ImGui::SliderFloat("Volume", &music_volume, 0.0f, 100.0f, "%.0f%%"))
+                {
+                    updateAudio();
+                }
+
+                ImGui::Spacing();
+
+                // Status
+                ImGui::Text("Status: %s", music_enabled ? "Playing (Looping)" : "Stopped");
+
+                ImGui::Spacing();
+
+                // Restart button
+                if (ImGui::Button("Restart Music", ImVec2(-1, 0)))
+                {
+                    stopAudio();
+                    if (music_enabled)
+                    {
+                        initAudio();
+                    }
+                }
+            }
+        }
+
         ImGui::End();
     }
 
@@ -689,7 +741,8 @@ float Application::calculate4DDistance(const Vec4& a, const Vec4& b)
         a_norm.w * b_norm.w;
 
     // Clamp to avoid numerical issues with acos
-    dot_product = std::max(-1.0f, std::min(1.0f, dot_product));
+    if (dot_product < -1.0f) dot_product = -1.0f;
+    if (dot_product > 1.0f) dot_product = 1.0f;
 
     // Arc length on unit sphere (geodesic distance)
     return std::acos(dot_product);
@@ -720,7 +773,8 @@ float Application::calculateClusteringScore()
     // Convert to score (0-100, where 100 is best)
     // Max distance on sphere is π, map that to 0 points
     // Close clustering (< 0.5 radians avg) maps to high scores
-    float score = std::max(0.0f, 100.0f * (1.0f - avg_distance / 3.14159f));
+    float score = 100.0f * (1.0f - avg_distance / 3.14159f);
+    if (score < 0.0f) score = 0.0f;
 
     return score;
 }
@@ -758,6 +812,87 @@ void Application::applyRedBallVelocity()
         // Start next round (this does NOT reset positions, just changes game state)
         startNewRound();
     }
+}
+
+void Application::initAudio()
+{
+#ifdef _WIN32
+    // Open the audio device using MCI
+    std::string open_command = "open \"audio/background.wav\" type waveaudio alias " + audio_alias;
+    MCIERROR error = mciSendStringA(open_command.c_str(), NULL, 0, NULL);
+
+    if (error != 0)
+    {
+        char error_text[256];
+        mciGetErrorStringA(error, error_text, sizeof(error_text));
+        std::cerr << "Warning: Failed to open audio: " << error_text << std::endl;
+        std::cerr << "Make sure audio/background.wav exists in your project directory" << std::endl;
+        music_loaded = false;
+        audio_device_open = false;
+        return;
+    }
+
+    audio_device_open = true;
+    music_loaded = true;
+
+    // Set time format to milliseconds
+    std::string format_command = "set " + audio_alias + " time format milliseconds";
+    mciSendStringA(format_command.c_str(), NULL, 0, NULL);
+
+    std::cout << "Audio initialized successfully" << std::endl;
+
+    if (music_enabled)
+    {
+        updateAudio();
+    }
+#else
+    std::cerr << "Audio playback is only supported on Windows" << std::endl;
+    music_loaded = false;
+    audio_device_open = false;
+#endif
+}
+
+void Application::updateAudio()
+{
+#ifdef _WIN32
+    if (!audio_device_open) return;
+
+    if (music_enabled)
+    {
+        // Set volume (0-1000 for MCI)
+        int volume = (int)(music_volume * 10.0f);
+        std::string volume_command = "setaudio " + audio_alias + " volume to " + std::to_string(volume);
+        mciSendStringA(volume_command.c_str(), NULL, 0, NULL);
+
+        // Stop first (to restart if already playing)
+        std::string stop_command = "stop " + audio_alias;
+        mciSendStringA(stop_command.c_str(), NULL, 0, NULL);
+
+        // Play with repeat
+        std::string play_command = "play " + audio_alias + " from 0 repeat";
+        mciSendStringA(play_command.c_str(), NULL, 0, NULL);
+    }
+    else
+    {
+        std::string stop_command = "stop " + audio_alias;
+        mciSendStringA(stop_command.c_str(), NULL, 0, NULL);
+    }
+#endif
+}
+
+void Application::stopAudio()
+{
+#ifdef _WIN32
+    if (!audio_device_open) return;
+
+    std::string stop_command = "stop " + audio_alias;
+    mciSendStringA(stop_command.c_str(), NULL, 0, NULL);
+
+    std::string close_command = "close " + audio_alias;
+    mciSendStringA(close_command.c_str(), NULL, 0, NULL);
+
+    audio_device_open = false;
+#endif
 }
 
 void Application::toggleFullscreen()
