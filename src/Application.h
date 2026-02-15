@@ -82,6 +82,10 @@ private:
 	int windowed_pos_x = 0;
 	int windowed_pos_y = 0;
 
+	float catch_radius = 0.7f;
+	int total_points = 0;
+	bool caught_this_round = false;
+
 
 	enum class GameState {
 		INTRO,           
@@ -111,6 +115,8 @@ private:
 
 
 	bool show_velocity_arrow = false;
+
+	bool checkIfCaught();
 
 
 
