@@ -54,7 +54,7 @@ Hit sceneSDF(vec4 pos)
 
         float ang = sqrt(max(0.0, 2.0*approx));
 
-        float ripple = 0.005*sin(100.0*coeff);
+        float ripple = 0.05*sin(100.0*coeff);
 
         float d = ang + ripple - particles[i].radius;
 
