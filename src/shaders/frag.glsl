@@ -4,7 +4,7 @@ out vec4 FragColor;
 
 const int MAX_STEPS = 20;
 const float TOLERANCE = 0.01;
-const float MAX_DIST= 10; // half universe
+const float MAX_DIST= 10;
 
 uniform vec4 cpos;
 uniform vec4 up;
@@ -12,7 +12,7 @@ uniform vec4 right;
 uniform vec4 front;
 uniform float u_time;
 
-float focal = 1;
+float focal = 2;
 
 struct Sphere
 {
