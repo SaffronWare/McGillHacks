@@ -16,7 +16,7 @@ layout(std430, binding = 0) buffer SphereBuffer
 };
 
 uniform float dt;
-const float G = 7.5; // tbd
+const float G = 5000.5; // tbd
 
 const float PI = 3.14159265359;
 

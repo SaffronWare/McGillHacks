@@ -12,7 +12,7 @@ uniform vec4 right;
 uniform vec4 front;
 uniform float u_time;
 
-float focal = 1.2;
+float focal = 2;
 
 struct Sphere
 {
@@ -56,7 +56,7 @@ Hit sceneSDF(vec4 pos)
 
         float ripple = 0.05*sin(100.0*coeff);
 
-        float d = ang + ripple - particles[i].radius;
+        float d = ang + 0*ripple - particles[i].radius;
 
         if (d < hit.t)
         {
@@ -124,7 +124,7 @@ vec3 sky(vec4 rd)
 
 void main()
 {
-    // build ray in tangent space
+
     vec4 rd = normalize(screenPos.x*right + screenPos.y*up + focal*front);
     rd = normalize(rd - cpos*dot(rd,cpos));
 

@@ -632,7 +632,7 @@ void Application::initializeGame()
     // Index 0 = Red ball (largest, player-controlled)
     float sizes[10] = { 0.08f, 0.04f, 0.045f, 0.05f, 0.035f, 0.055f, 0.04f, 0.038f, 0.042f, 0.048f };
 
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < 2; i++)
     {
         ParticleGPU particle;
 
@@ -642,12 +642,13 @@ void Application::initializeGame()
         // Random initial velocity
         particle.velocity = Vec4(rng(2) - 1, rng(2) - 1, rng(2) - 1, rng(2) - 1).normalized() * 0.3f;
 
-        particle.radius = sizes[i];
+        particle.radius = sizes[i]/8.0f;
 
         // First one is red (player ball), others are random colors
         if (i == 0)
         {
             particle.color = Vec3(1.0f, 0.0f, 0.0f);  // Red
+            particle.radius *= 4.0f;
         }
         else
         {
@@ -985,8 +986,8 @@ int Application::run()
         {
             glfwGetCursorPos(window, &nx, &ny);
 
-            cam.yaw((nx - ox) * 0.1 * dt);
-            cam.pitch((ny - oy) * 0.1 * dt);
+            cam.yaw((nx - ox) * 0.05 * dt);
+            cam.pitch((ny - oy) * 0.05 * dt);
 
             ox = nx; oy = ny;
 
