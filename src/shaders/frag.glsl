@@ -114,8 +114,8 @@ void main()
 
     vec4 p = cpos;
     float t=0;
-
     Hit hit;
+    FragColor = vec4(0);
 
     for (int i =0; i<MAX_STEPS; i++)
     {
