@@ -1,9 +1,10 @@
-#include "Application.h"
+﻿#include "Application.h"
 
 #include <stdexcept>
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <cmath>
 
 static std::string ReadFile(const char* path)
 {
@@ -73,15 +74,8 @@ Application::Application()
 {
     cam = Camera();
 
-    for (int i = 1; i <= 10; i++)
-    {
-        ParticleGPU test;
-        test.position = Vec4(rng(2), rng(2), rng(2), rng(2)).normalized();
-        test.velocity = Vec4(rng(2), rng(2), rng(2), rng(2)).normalized();
-        test.radius = (rng(10) / 150);
-        test.color = Vec3(rng(2), rng(2), rng(2));
-        particles.push_back(test);
-    }
+    // Initialize game instead of random particles
+    initializeGame();
 
     if (!glfwInit())
         throw std::runtime_error("GLFW could not initialize!");
@@ -93,9 +87,12 @@ Application::Application()
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
     const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+    windowed_width = int(mode->width * 0.8f);
+    windowed_height = int(mode->height * 0.8f);
+
     window = glfwCreateWindow(
-        int(mode->width * 0.8f),
-        int(mode->height * 0.8f),
+        windowed_width,
+        windowed_height,
         "CocoFractal3D",
         nullptr, nullptr
     );
@@ -109,7 +106,7 @@ Application::Application()
     glfwMakeContextCurrent(window);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::runtime_error("Failed to initialize OpenGL context");
+        throw std::runtime_error("Failed to initialize OpenGL context");
         glfwTerminate();
     }
 
@@ -155,6 +152,12 @@ Application::Application()
     up_id = glGetUniformLocation(shader_program, "up");
     u_dt = glGetUniformLocation(computeProgram, "dt");
 
+    // Arrow visualization uniforms
+    u_show_arrow = glGetUniformLocation(shader_program, "u_show_arrow");
+    u_arrow_start = glGetUniformLocation(shader_program, "u_arrow_start");
+    u_arrow_direction = glGetUniformLocation(shader_program, "u_arrow_direction");
+    u_arrow_length = glGetUniformLocation(shader_program, "u_arrow_length");
+
     glGenBuffers(1, &particleSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
 
@@ -170,6 +173,9 @@ Application::Application()
     glfwGetFramebufferSize(window, &fbw, &fbh);
     w = fbw; h = fbh;
     glViewport(0, 0, w, h);
+
+    // Initialize clustering score
+    current_clustering_score = calculateClusteringScore();
 }
 
 Application::~Application()
@@ -192,6 +198,7 @@ void Application::initImGui()
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
@@ -216,14 +223,258 @@ void Application::renderImGui()
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // 1. Show the big demo window (optional)
-    if (show_demo_window)
-        ImGui::ShowDemoWindow(&show_demo_window);
+    // Enable docking (optional - only if docking is enabled)
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+    {
+        // DockSpaceOverViewport expects an ImGuiID or uses the main viewport's ID
+        ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
+    }
 
-    // 2. Show a custom controls window
+    // ===== TOP BANNER: Game Instructions & Tutorial =====
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y));
+    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, 120));
+    ImGui::SetNextWindowBgAlpha(0.9f);
+
+    ImGuiWindowFlags banner_flags = ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings;
+
+    ImGui::Begin("Game Info Banner", nullptr, banner_flags);
+
+    ImGui::SetWindowFontScale(1.3f);
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "4D GRAVITY SHEPHERD");
+    ImGui::SetWindowFontScale(1.0f);
+
+    ImGui::Separator();
+
+    if (game_state == GameState::INTRO)
+    {
+        ImGui::TextWrapped("Welcome! You control the RED sphere. Your goal: Use gravity to cluster all 10 spheres as closely as possible over 10 rounds!");
+        ImGui::TextWrapped("Each round lasts 5 seconds. When paused, adjust the red sphere's velocity to guide the cluster.");
+    }
+    else if (game_state == GameState::SIMULATION)
+    {
+        ImGui::Text("Round %d / %d", current_round, MAX_ROUNDS);
+        ImGui::SameLine();
+        ImGui::ProgressBar(round_timer / ROUND_DURATION, ImVec2(-1, 0), "");
+
+        if (show_tutorial && current_round == 1)
+        {
+            ImGui::Separator();
+            if (tutorial_step == 0)
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Watch the spheres interact through 4D gravity...");
+            else if (tutorial_step == 1)
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "The RED sphere is yours to control!");
+            else if (tutorial_step == 2)
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "When paused, you'll be able to change its velocity...");
+            else if (tutorial_step == 3)
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.5f, 1.0f), "Get ready to input your move!");
+        }
+        else
+        {
+            ImGui::TextWrapped("Observing gravitational interactions... Time remaining: %.1f s", ROUND_DURATION - round_timer);
+        }
+    }
+    else if (game_state == GameState::PAUSED)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "PAUSED - Round %d / %d", current_round, MAX_ROUNDS);
+        ImGui::TextWrapped("Adjust the RED sphere's velocity, then click 'Apply & Continue'");
+    }
+    else if (game_state == GameState::GAME_OVER)
+    {
+        ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "GAME COMPLETE!");
+        ImGui::Text("Final Clustering Score: %.1f / 100", final_clustering_score);
+
+        if (final_clustering_score > 80)
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Excellent! Master of 4D gravity!");
+        else if (final_clustering_score > 60)
+            ImGui::Text("Good job! The spheres are fairly clustered.");
+        else if (final_clustering_score > 40)
+            ImGui::Text("Not bad, but there's room for improvement.");
+        else
+            ImGui::Text("The spheres are quite scattered. Try again?");
+    }
+
+    ImGui::End();
+
+    // ===== VELOCITY EDITOR (appears during PAUSED state) =====
+    if (show_velocity_editor && game_state == GameState::PAUSED)
+    {
+        ImGui::Begin("Red Sphere Velocity Editor", &show_velocity_editor);
+
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Red Sphere Control");
+        ImGui::Separator();
+
+        ImGui::Text("Current Position:");
+        if (particles.size() > 0)
+        {
+            ImGui::Text("  (%.3f, %.3f, %.3f, %.3f)",
+                particles[0].position.x,
+                particles[0].position.y,
+                particles[0].position.z,
+                particles[0].position.w);
+        }
+
+        ImGui::Separator();
+        ImGui::TextWrapped("Set velocity direction (will be normalized):");
+
+        ImGui::SliderFloat("X##vel", &red_ball_velocity_input.x, -1.0f, 1.0f);
+        ImGui::SliderFloat("Y##vel", &red_ball_velocity_input.y, -1.0f, 1.0f);
+        ImGui::SliderFloat("Z##vel", &red_ball_velocity_input.z, -1.0f, 1.0f);
+        ImGui::SliderFloat("W##vel", &red_ball_velocity_input.w, -1.0f, 1.0f);
+
+        ImGui::Separator();
+        ImGui::SliderFloat("Magnitude", &velocity_magnitude, 0.0f, 1.0f);
+
+        ImGui::Separator();
+
+        // Debug info
+        ImGui::Text("Arrow Status:");
+        ImGui::Text("  Show Arrow: %s", show_velocity_arrow ? "YES" : "NO");
+        ImGui::Text("  Arrow Length: %.3f", velocity_magnitude * 0.5f);
+
+        ImGui::Separator();
+
+        // Show preview of resulting velocity
+        Vec4 preview_vel = red_ball_velocity_input.normalized() * velocity_magnitude;
+        ImGui::Text("Preview velocity:");
+        ImGui::Text("  (%.3f, %.3f, %.3f, %.3f)", preview_vel.x, preview_vel.y, preview_vel.z, preview_vel.w);
+
+        ImGui::Separator();
+
+        // Visual arrow indicator for velocity direction
+        ImGui::Text("Velocity Direction (Camera View):");
+
+        ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
+        ImVec2 canvas_size = ImVec2(300, 300);
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+        // Draw background
+        draw_list->AddRectFilled(canvas_pos,
+            ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
+            IM_COL32(20, 20, 20, 255));
+        draw_list->AddRect(canvas_pos,
+            ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
+            IM_COL32(100, 100, 100, 255));
+
+        // Center point
+        ImVec2 center = ImVec2(canvas_pos.x + canvas_size.x * 0.5f,
+            canvas_pos.y + canvas_size.y * 0.5f);
+
+        // Project velocity vector onto camera's right and up vectors
+        Vec4 normalized_vel = red_ball_velocity_input.normalized();
+
+        // Project velocity onto camera's coordinate system
+        float vel_right = normalized_vel.x * cam.right.x +
+            normalized_vel.y * cam.right.y +
+            normalized_vel.z * cam.right.z +
+            normalized_vel.w * cam.right.w;
+
+        float vel_up = normalized_vel.x * cam.up.x +
+            normalized_vel.y * cam.up.y +
+            normalized_vel.z * cam.up.z +
+            normalized_vel.w * cam.up.w;
+
+        float vel_front = normalized_vel.x * cam.front.x +
+            normalized_vel.y * cam.front.y +
+            normalized_vel.z * cam.front.z +
+            normalized_vel.w * cam.front.w;
+
+        // Scale to fit in canvas
+        float scale = 120.0f;
+        ImVec2 arrow_end = ImVec2(center.x + vel_right * scale,
+            center.y - vel_up * scale);  // Negative Y because screen coords
+
+        // Draw grid lines
+        for (int i = -1; i <= 1; i++)
+        {
+            if (i == 0) continue;
+            draw_list->AddLine(ImVec2(center.x + i * 50, canvas_pos.y),
+                ImVec2(center.x + i * 50, canvas_pos.y + canvas_size.y),
+                IM_COL32(40, 40, 40, 255), 1.0f);
+            draw_list->AddLine(ImVec2(canvas_pos.x, center.y + i * 50),
+                ImVec2(canvas_pos.x + canvas_size.x, center.y + i * 50),
+                IM_COL32(40, 40, 40, 255), 1.0f);
+        }
+
+        // Draw cross-hairs (camera axes)
+        draw_list->AddLine(ImVec2(center.x - 10, center.y),
+            ImVec2(center.x + 10, center.y),
+            IM_COL32(150, 150, 150, 255), 2.0f);
+        draw_list->AddLine(ImVec2(center.x, center.y - 10),
+            ImVec2(center.x, center.y + 10),
+            IM_COL32(150, 150, 150, 255), 2.0f);
+
+        // Draw magnitude circle
+        draw_list->AddCircle(center, velocity_magnitude * scale, IM_COL32(100, 100, 255, 80), 32, 1.5f);
+
+        // Draw velocity arrow
+        draw_list->AddLine(center, arrow_end, IM_COL32(255, 50, 50, 255), 4.0f);
+
+        // Draw arrowhead
+        float arrow_length = sqrtf((arrow_end.x - center.x) * (arrow_end.x - center.x) +
+            (arrow_end.y - center.y) * (arrow_end.y - center.y));
+        if (arrow_length > 15.0f)
+        {
+            float angle = atan2f(arrow_end.y - center.y, arrow_end.x - center.x);
+            float head_size = 15.0f;
+
+            ImVec2 p1 = ImVec2(arrow_end.x - head_size * cosf(angle - 0.5f),
+                arrow_end.y - head_size * sinf(angle - 0.5f));
+            ImVec2 p2 = ImVec2(arrow_end.x - head_size * cosf(angle + 0.5f),
+                arrow_end.y - head_size * sinf(angle + 0.5f));
+
+            draw_list->AddTriangleFilled(arrow_end, p1, p2, IM_COL32(255, 50, 50, 255));
+        }
+
+        // Draw endpoint circle
+        draw_list->AddCircleFilled(arrow_end, 5.0f, IM_COL32(255, 50, 50, 255));
+
+        ImGui::Dummy(canvas_size);
+
+        ImGui::Text("Camera Right-Up projection");
+        ImGui::Text("Into screen (front): %.2f", vel_front);
+
+        // Color code the depth
+        if (vel_front > 0.3f)
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "  (pointing away from camera)");
+        else if (vel_front < -0.3f)
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "  (pointing toward camera)");
+        else
+            ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "  (perpendicular to view)");
+
+        ImGui::Separator();
+
+        // Show velocity vector info (preview_vel already declared above)
+        ImGui::Text("Velocity vector:");
+        ImGui::Text("  (%.3f, %.3f, %.3f, %.3f)", preview_vel.x, preview_vel.y, preview_vel.z, preview_vel.w);
+        ImGui::Text("Magnitude: %.2f", velocity_magnitude);
+
+        ImGui::Separator();
+
+        if (ImGui::Button("Apply & Continue to Next Round", ImVec2(-1, 40)))
+        {
+            applyRedBallVelocity();
+        }
+
+        ImGui::Spacing();
+
+        if (ImGui::Button("Keep Current Velocity", ImVec2(-1, 0)))
+        {
+            // Don't change velocity, just continue
+            startNewRound();
+        }
+
+        ImGui::End();
+    }
+
+    // ===== MAIN CONTROLS WINDOW =====
     if (show_controls_window)
     {
-        ImGui::Begin("4D Sphere Controls", &show_controls_window);
+        ImGui::Begin("Controls & Info", &show_controls_window);
 
         // UI Mode indicator
         if (ui_mode)
@@ -239,9 +490,7 @@ void Application::renderImGui()
 
         ImGui::Separator();
 
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
-            1000.0f / ImGui::GetIO().Framerate,
-            ImGui::GetIO().Framerate);
+        ImGui::Text("FPS: %.1f (%.2f ms)", io.Framerate, 1000.0f / io.Framerate);
 
         ImGui::Separator();
 
@@ -256,24 +505,43 @@ void Application::renderImGui()
 
         ImGui::Separator();
 
-        // Simulation controls
-        if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen))
+        // Game controls
+        if (ImGui::CollapsingHeader("Game Controls", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::Checkbox("Pause Simulation", &pause_simulation);
-            ImGui::SliderFloat("Speed", &simulation_speed, 0.0f, 5.0f);
-            ImGui::SliderInt("Max Particles", &max_particles, 1, 256);
+            ImGui::Text("Spheres: %zu", particles.size());
+            ImGui::Text("Game State: %s",
+                game_state == GameState::INTRO ? "Introduction" :
+                game_state == GameState::SIMULATION ? "Simulating" :
+                game_state == GameState::PAUSED ? "Paused for Input" :
+                "Game Over");
 
-            if (ImGui::Button("Add 10 Particles"))
+            if (game_state != GameState::GAME_OVER && game_state != GameState::INTRO)
             {
-                for (int i = 0; i < 10; i++)
+                ImGui::Text("Current Round: %d / %d", current_round, MAX_ROUNDS);
+
+                ImGui::Separator();
+
+                // Show live clustering score (updated every 0.5s)
+                ImGui::Text("Clustering Analysis:");
+                ImGui::Text("  Score: %.1f / 100", current_clustering_score);
+                ImGui::ProgressBar(current_clustering_score / 100.0f, ImVec2(-1, 0));
+
+                ImGui::Text("  Update timer: %.2f / %.2f s",
+                    clustering_update_timer, CLUSTERING_UPDATE_INTERVAL);
+
+                // Show a sample distance for debugging
+                if (particles.size() >= 2)
                 {
-                    ParticleGPU test;
-                    test.position = Vec4(rng(2), rng(2), rng(2), rng(2)).normalized();
-                    test.velocity = Vec4(rng(2), rng(2), rng(2), rng(2)).normalized();
-                    test.radius = (rng(10) / 150);
-                    test.color = Vec3(rng(2), rng(2), rng(2));
-                    particles.push_back(test);
+                    float sample_dist = calculate4DDistance(particles[0].position, particles[1].position);
+                    ImGui::Text("  Sample distance (0-1): %.3f rad", sample_dist);
                 }
+            }
+
+            ImGui::Spacing();
+
+            if (ImGui::Button("Restart Game", ImVec2(-1, 0)))
+            {
+                initializeGame();
 
                 // Update GPU buffer
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
@@ -282,17 +550,6 @@ void Application::renderImGui()
                     particles.data(),
                     GL_DYNAMIC_READ);
             }
-
-            ImGui::SameLine();
-
-            if (ImGui::Button("Clear Particles"))
-            {
-                particles.clear();
-                glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
-                glBufferData(GL_SHADER_STORAGE_BUFFER, 0, nullptr, GL_DYNAMIC_READ);
-            }
-
-            ImGui::Text("Current Particles: %zu", particles.size());
         }
 
         ImGui::Separator();
@@ -300,15 +557,241 @@ void Application::renderImGui()
         // Rendering controls
         if (ImGui::CollapsingHeader("Rendering"))
         {
-            ImGui::ColorEdit3("Clear Color", clear_color);
+            ImGui::ColorEdit3("Background", clear_color);
         }
 
         ImGui::End();
     }
 
+    // Show demo window if enabled
+    if (show_demo_window)
+        ImGui::ShowDemoWindow(&show_demo_window);
+
     // Rendering
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
+
+void Application::initializeGame()
+{
+    particles.clear();
+
+    // Create 10 spheres with varying sizes
+    // Index 0 = Red ball (largest, player-controlled)
+    float sizes[10] = { 0.08f, 0.04f, 0.045f, 0.05f, 0.035f, 0.055f, 0.04f, 0.038f, 0.042f, 0.048f };
+
+    for (int i = 0; i < 10; i++)
+    {
+        ParticleGPU particle;
+
+        // Random position on 4D sphere
+        particle.position = Vec4(rng(2) - 1, rng(2) - 1, rng(2) - 1, rng(2) - 1).normalized();
+
+        // Random initial velocity
+        particle.velocity = Vec4(rng(2) - 1, rng(2) - 1, rng(2) - 1, rng(2) - 1).normalized() * 0.3f;
+
+        particle.radius = sizes[i];
+
+        // First one is red (player ball), others are random colors
+        if (i == 0)
+        {
+            particle.color = Vec3(1.0f, 0.0f, 0.0f);  // Red
+        }
+        else
+        {
+            particle.color = Vec3(rng(1), rng(1), rng(1));
+        }
+
+        particles.push_back(particle);
+    }
+
+    // Reset game state
+    game_state = GameState::INTRO;
+    current_round = 0;
+    round_timer = 0.0f;
+    tutorial_step = 0;
+    show_tutorial = true;
+}
+
+void Application::updateGameState(float dt)
+{
+    // Update clustering score periodically
+    clustering_update_timer += dt;
+    if (clustering_update_timer >= CLUSTERING_UPDATE_INTERVAL)
+    {
+        current_clustering_score = calculateClusteringScore();
+        clustering_update_timer = 0.0f;
+    }
+
+    switch (game_state)
+    {
+    case GameState::INTRO:
+        round_timer += dt;
+        if (round_timer >= 3.0f)  // Show intro for 3 seconds
+        {
+            round_timer = 0.0f;
+            game_state = GameState::SIMULATION;
+            current_round = 1;
+        }
+        break;
+
+    case GameState::SIMULATION:
+        round_timer += dt;
+
+        // Progress tutorial
+        if (show_tutorial)
+        {
+            if (round_timer > 1.0f && tutorial_step == 0) tutorial_step = 1;
+            if (round_timer > 2.5f && tutorial_step == 1) tutorial_step = 2;
+            if (round_timer > 4.0f && tutorial_step == 2) tutorial_step = 3;
+        }
+
+        if (round_timer >= ROUND_DURATION)
+        {
+            game_state = GameState::PAUSED;
+            round_timer = 0.0f;
+            show_velocity_editor = true;
+            show_velocity_arrow = true;  // Show arrow during pause
+
+            // Automatically switch to UI mode
+            if (!ui_mode)
+            {
+                ui_mode = true;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            }
+        }
+        break;
+
+    case GameState::PAUSED:
+        // Wait for player to apply velocity
+        break;
+
+    case GameState::GAME_OVER:
+        // Calculate final score (once)
+        if (final_clustering_score == 0.0f)
+        {
+            final_clustering_score = calculateClusteringScore();
+        }
+        break;
+    }
+}
+
+float Application::calculate4DDistance(const Vec4& a, const Vec4& b)
+{
+    // Calculate geodesic distance on 4-sphere surface
+    // Both points should be normalized (on unit sphere)
+    Vec4 a_norm = a.normalized();
+    Vec4 b_norm = b.normalized();
+
+    float dot_product = a_norm.x * b_norm.x +
+        a_norm.y * b_norm.y +
+        a_norm.z * b_norm.z +
+        a_norm.w * b_norm.w;
+
+    // Clamp to avoid numerical issues with acos
+    dot_product = std::max(-1.0f, std::min(1.0f, dot_product));
+
+    // Arc length on unit sphere (geodesic distance)
+    return std::acos(dot_product);
+}
+
+float Application::calculateClusteringScore()
+{
+    if (particles.size() < 2) return 0.0f;
+
+    // Calculate average pairwise geodesic distance (lower is better)
+    float total_distance = 0.0f;
+    int pair_count = 0;
+
+    for (size_t i = 0; i < particles.size(); i++)
+    {
+        for (size_t j = i + 1; j < particles.size(); j++)
+        {
+            // Use geodesic distance on curved 4-sphere
+            total_distance += calculate4DDistance(particles[i].position, particles[j].position);
+            pair_count++;
+        }
+    }
+
+    if (pair_count == 0) return 0.0f;
+
+    float avg_distance = total_distance / pair_count;
+
+    // Convert to score (0-100, where 100 is best)
+    // Max distance on sphere is π, map that to 0 points
+    // Close clustering (< 0.5 radians avg) maps to high scores
+    float score = std::max(0.0f, 100.0f * (1.0f - avg_distance / 3.14159f));
+
+    return score;
+}
+
+void Application::startNewRound()
+{
+    current_round++;
+    round_timer = 0.0f;
+    show_velocity_editor = false;
+    show_velocity_arrow = false;  // Hide arrow during simulation
+    show_tutorial = false;  // Hide tutorial after first round
+
+    if (current_round <= MAX_ROUNDS)
+    {
+        game_state = GameState::SIMULATION;
+        // DON'T reset positions - particles continue from where they were!
+    }
+    else
+    {
+        game_state = GameState::GAME_OVER;
+    }
+}
+
+void Application::applyRedBallVelocity()
+{
+    if (particles.size() > 0)
+    {
+        // Apply the velocity to the red ball (index 0)
+        particles[0].velocity = red_ball_velocity_input.normalized() * velocity_magnitude;
+
+        // Update GPU buffer - only update the red ball
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(ParticleGPU), &particles[0]);
+
+        // Start next round (this does NOT reset positions, just changes game state)
+        startNewRound();
+    }
+}
+
+void Application::toggleFullscreen()
+{
+    if (!is_fullscreen)
+    {
+        // Save current windowed position and size
+        glfwGetWindowPos(window, &windowed_pos_x, &windowed_pos_y);
+        glfwGetWindowSize(window, &windowed_width, &windowed_height);
+
+        // Get monitor and video mode
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+
+        // Switch to fullscreen
+        glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+
+        is_fullscreen = true;
+    }
+    else
+    {
+        // Switch back to windowed mode
+        glfwSetWindowMonitor(window, nullptr, windowed_pos_x, windowed_pos_y,
+            windowed_width, windowed_height, 0);
+
+        is_fullscreen = false;
+    }
+
+    // Update viewport after mode change
+    int fbw, fbh;
+    glfwGetFramebufferSize(window, &fbw, &fbh);
+    w = fbw;
+    h = fbh;
+    glViewport(0, 0, w, h);
 }
 
 void Application::handle_events(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -359,6 +842,9 @@ int Application::run()
 
         glfwPollEvents();
 
+        // Update game state
+        updateGameState(dt);
+
         // Only update camera if NOT in UI mode
         if (!ui_mode)
         {
@@ -389,7 +875,8 @@ int Application::run()
         }
 
         // ---- PHYSICS ----
-        if (!pause_simulation && particles.size() > 0)
+        // Only run physics during SIMULATION and INTRO states
+        if ((game_state == GameState::SIMULATION || game_state == GameState::INTRO) && particles.size() > 0)
         {
             glUseProgram(computeProgram);
             glUniform1f(u_dt, dt * simulation_speed);
@@ -414,6 +901,20 @@ int Application::run()
         if (front_id != -1) glUniform4f(front_id, cam.front.x, cam.front.y, cam.front.z, cam.front.w);
         if (up_id != -1) glUniform4f(up_id, cam.up.x, cam.up.y, cam.up.z, cam.up.w);
         if (right_id != -1) glUniform4f(right_id, cam.right.x, cam.right.y, cam.right.z, cam.right.w);
+
+        // Send arrow data to shader
+        if (u_show_arrow != -1) glUniform1i(u_show_arrow, show_velocity_arrow ? 1 : 0);
+
+        if (show_velocity_arrow && particles.size() > 0)
+        {
+            Vec4 arrow_start = particles[0].position;  // Red ball position
+            Vec4 arrow_dir = red_ball_velocity_input.normalized();
+            float arrow_len = velocity_magnitude * 0.5f;  // Scale arrow length for visibility
+
+            if (u_arrow_start != -1) glUniform4f(u_arrow_start, arrow_start.x, arrow_start.y, arrow_start.z, arrow_start.w);
+            if (u_arrow_direction != -1) glUniform4f(u_arrow_direction, arrow_dir.x, arrow_dir.y, arrow_dir.z, arrow_dir.w);
+            if (u_arrow_length != -1) glUniform1f(u_arrow_length, arrow_len);
+        }
 
         glDisable(GL_DEPTH_TEST);
 

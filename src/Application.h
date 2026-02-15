@@ -23,7 +23,7 @@ struct ParticleGPU
 	Vec4 velocity;
 };
 
-struct Application
+class Application
 {
 public:
 	Application();
@@ -36,6 +36,15 @@ private:
 	void initImGui();
 	void shutdownImGui();
 	void renderImGui();
+
+	// Game logic helpers
+	void initializeGame();
+	void updateGameState(float dt);
+	float calculateClusteringScore();
+	float calculate4DDistance(const Vec4& a, const Vec4& b);
+	void startNewRound();
+	void applyRedBallVelocity();
+	void toggleFullscreen();
 
 	// Rendering state
 	GLuint pos_id;
@@ -54,12 +63,57 @@ private:
 	int w;
 	int h;
 
+	// Arrow rendering
+	GLuint u_show_arrow;
+	GLuint u_arrow_start;
+	GLuint u_arrow_direction;
+	GLuint u_arrow_length;
+
 	// UI mode control
 	bool ui_mode = false;  // false = camera control, true = UI interaction
 
-	// ImGui state variables (example - add your own)
-	bool show_demo_window = true;
+	// Fullscreen mode
+	bool is_fullscreen = false;
+	int windowed_width = 0;
+	int windowed_height = 0;
+	int windowed_pos_x = 0;
+	int windowed_pos_y = 0;
+
+	// Game state variables
+	enum class GameState {
+		INTRO,           // Game introduction
+		SIMULATION,      // Particles moving
+		PAUSED,          // Frozen for player input
+		GAME_OVER        // All rounds complete
+	};
+
+	GameState game_state = GameState::INTRO;
+	int current_round = 0;
+	const int MAX_ROUNDS = 10;
+	float round_timer = 0.0f;
+	const float ROUND_DURATION = 5.0f;
+
+	// Red ball (player-controlled) - always particles[0]
+	Vec4 red_ball_velocity_input = Vec4(0, 0, 0, 0);
+	float velocity_magnitude = 0.5f;
+
+	// Tutorial state
+	bool show_tutorial = true;
+	int tutorial_step = 0;
+
+	// Results
+	float final_clustering_score = 0.0f;
+	float current_clustering_score = 0.0f;
+	float clustering_update_timer = 0.0f;
+	const float CLUSTERING_UPDATE_INTERVAL = 0.5f;  // Update every 0.5 seconds
+
+	// Velocity arrow visualization
+	bool show_velocity_arrow = false;
+
+	// ImGui state variables
+	bool show_demo_window = false;
 	bool show_controls_window = true;
+	bool show_velocity_editor = false;
 	float particle_spawn_rate = 1.0f;
 	int max_particles = 128;
 	float simulation_speed = 1.0f;
