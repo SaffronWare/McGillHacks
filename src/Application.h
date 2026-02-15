@@ -15,13 +15,6 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
-// Windows Audio
-#ifdef _WIN32
-#include <windows.h>
-#include <mmsystem.h>
-#pragma comment(lib, "winmm.lib")
-#endif
-
 struct ParticleGPU
 {
 	Vec4 position;
@@ -75,28 +68,28 @@ private:
 	int w;
 	int h;
 
-	// Arrow rendering (unused - kept for compatibility)
+
 	GLuint u_show_arrow;
 	GLuint u_arrow_start;
 	GLuint u_arrow_direction;
 	GLuint u_arrow_length;
 
-	// UI mode control
-	bool ui_mode = false;  // false = camera control, true = UI interaction
 
-	// Fullscreen mode
+	bool ui_mode = false;  
+
+
 	bool is_fullscreen = false;
 	int windowed_width = 0;
 	int windowed_height = 0;
 	int windowed_pos_x = 0;
 	int windowed_pos_y = 0;
 
-	// Game state variables
+
 	enum class GameState {
-		INTRO,           // Game introduction
-		SIMULATION,      // Particles moving
-		PAUSED,          // Frozen for player input
-		GAME_OVER        // All rounds complete
+		INTRO,           
+		SIMULATION,      
+		PAUSED,          
+		GAME_OVER        
 	};
 
 	GameState game_state = GameState::INTRO;
@@ -105,31 +98,24 @@ private:
 	float round_timer = 0.0f;
 	const float ROUND_DURATION = 5.0f;
 
-	// Red ball (player-controlled) - always particles[0]
-	Vec4 red_ball_velocity_input = Vec4(0.5, 0.5, 0, 0);  // Start with visible default
+	Vec4 red_ball_velocity_input = Vec4(0.5, 0.5, 0, 0);  
 	float velocity_magnitude = 0.5f;
 
-	// Tutorial state
+
 	bool show_tutorial = true;
 	int tutorial_step = 0;
 
-	// Results
+	
 	float final_clustering_score = 0.0f;
 	float current_clustering_score = 0.0f;
 	float clustering_update_timer = 0.0f;
-	const float CLUSTERING_UPDATE_INTERVAL = 0.5f;  // Update every 0.5 seconds
+	const float CLUSTERING_UPDATE_INTERVAL = 0.5f; 
 
-	// Velocity arrow visualization
+
 	bool show_velocity_arrow = false;
 
-	// Audio state
-	bool music_enabled = true;
-	bool music_loaded = false;
-	float music_volume = 50.0f;  // 0-100
-	bool audio_device_open = false;
-	std::string audio_alias = "BGMusic";
 
-	// ImGui state variables
+
 	bool show_demo_window = false;
 	bool show_controls_window = true;
 	bool show_velocity_editor = false;
