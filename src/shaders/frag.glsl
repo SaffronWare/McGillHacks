@@ -3,8 +3,8 @@
 in vec2 screenPos;
 out vec4 FragColor;
 
-const int MAX_STEPS = 100;
-const float TOLERANCE = 0.001;
+const int MAX_STEPS = 20;
+const float TOLERANCE = 0.01;
 
 uniform vec4 cpos;
 uniform vec4 up;
@@ -29,13 +29,17 @@ float focal = 2;
 
 uniform float u_time;
 
+float apcos(float t)
+{
+    return sqrt(2*(1-t));
+}
+
 
 float particlesDF(vec4 pos, Sphere s) 
 {   
    
-    return acos(clamp(dot(pos,s.center),-1.0,1.0)) - s.radius;
+    return apcos(clamp(dot(pos,s.center),-1.0,1.0)) - s.radius;
 };
-
 
 struct Hit 
 {
@@ -43,6 +47,31 @@ struct Hit
     float t;
     vec4 center;
 };
+
+Hit minSDF2(vec4 pos)
+{
+    Hit hit;
+    hit.t = 10.0;
+
+    for (int i = 0; i < particles.length(); i++)
+    {
+        float approx = 1.0 - dot(pos, particles[i].center);
+
+        // quick reject: definitely far
+        if (approx > (hit.t + particles[i].radius))
+            continue;
+
+        float d = sqrt(max(0.0, 2.0*approx)) - particles[i].radius;
+
+        if (d < hit.t)
+        {
+            hit.t = d;
+            hit.center = particles[i].center;
+            hit.col = particles[i].color;
+        }
+    }
+    return hit;
+}
 
 Hit minSDF(vec4 pos)
 {
@@ -90,7 +119,7 @@ void main()
 
     for (int i =0; i<MAX_STEPS; i++)
     {
-        hit = minSDF(p);
+        hit = minSDF2(p);
         if (hit.t < TOLERANCE)
         {
             p = compute_ray(cpos,rd,t);
@@ -99,7 +128,7 @@ void main()
             break;
         }
 
-        t += 0.8 * hit.t;
+        t += 1 * hit.t;
         p = compute_ray(cpos, rd, t);
     };
 

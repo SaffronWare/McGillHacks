@@ -16,6 +16,7 @@ file(GLOB SOURCES
 	"${LIB_DIR}/ImGui/backends/*.h"
 	"${LIB_DIR}/ImGui/backends/*.cpp"
 	"${LIB_DIR}/STB_IMAGE/stb_image.h"
+	"${LIB_DIR}/OpenGL/src/glad.c"
 )
 
 message(STATUS "Found source files: ${SOURCES}")

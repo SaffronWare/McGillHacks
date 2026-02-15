@@ -6,11 +6,19 @@
 #include <string>
 #include <sstream>
 #include <filesystem>
+#include <vector>
 
 #include "glad/glad.h"
 #include "glfw3.h"
 #include "Camera.h"
 
+struct ParticleGPU
+{
+	Vec4 position;
+	Vec3 color;
+	float radius;
+	Vec4 velocity;
+};
 
 struct Application
 {
@@ -32,6 +40,12 @@ private:
 	GLuint right_id;
 	GLuint up_id;
 	GLuint u_resolution;
+	GLuint u_dt;
+
+	GLuint computeProgram;
+
+	GLuint particleSSBO;
+	std::vector<ParticleGPU> particles;
 
 	GLuint vao;
 

@@ -66,9 +66,28 @@ static GLuint LinkProgram(GLuint vs, GLuint fs)
     return prog;
 }
 
+float rng(float s)
+{
+    return s * rand() / RAND_MAX;
+}
+
 Application::Application()
 {
     cam = Camera();
+
+
+
+    for (int i = 0; i <= 50; i++)
+    {
+        ParticleGPU test;
+        test.position = Vec4(rng(2),rng(2),rng(2),rng(2)).normalized();
+        test.velocity = Vec4(rng(2),rng(2),rng(2),rng(2)).normalized();
+        test.radius = 0.01;
+        test.color = Vec3(rng(2),rng(2),rng(2));
+        particles.push_back(test);
+    }
+
+    
 
     if (!glfwInit())
         throw std::runtime_error("GLFW could not initialize!");
@@ -121,6 +140,16 @@ Application::Application()
     GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fsSrc, "frag.glsl");
     shader_program = LinkProgram(vs, fs);
 
+    const std::string csSrc = ReadFile("shaders/compute.glsl");
+
+    GLuint cs = CompileShader(GL_COMPUTE_SHADER, csSrc, "compute.glsl");
+
+    computeProgram = glCreateProgram();
+    glAttachShader(computeProgram, cs);
+    glLinkProgram(computeProgram);
+
+    glDeleteShader(cs);
+
     // Uniform locations (optional; you can also just query per frame)
     u_resolution = glGetUniformLocation(shader_program, "u_resolution");
     //u_time = glGetUniformLocation(shader_program, "u_time");
@@ -130,6 +159,17 @@ Application::Application()
     front_id = glGetUniformLocation(shader_program, "front");
     right_id = glGetUniformLocation(shader_program, "right");
     up_id = glGetUniformLocation(shader_program, "up");
+    u_dt = glGetUniformLocation(computeProgram, "dt");
+
+    glGenBuffers(1, &particleSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
+
+    // allocate space for max spheres
+    const int MAX_SPHERES = 128;
+    glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(ParticleGPU), particles.data(), GL_DYNAMIC_READ);
+
+    // bind to binding = 0 (matches shader)
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleSSBO);
 
     // Initialize viewport
     int fbw, fbh;
@@ -204,10 +244,21 @@ int Application::run()
             cam.move_up(-dt);
 
 
-     
+        // ---- PHYSICS ----
+        glUseProgram(computeProgram);
+        glUniform1f(u_dt, dt);
+
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleSSBO);
+
+        glDispatchCompute(particles.size() / 1 + 1, 1, 1);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleSSBO);
+
+        // make writes visible
+        glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
       
         glUseProgram(shader_program);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleSSBO);
         glBindVertexArray(vao);
 
    
@@ -217,7 +268,7 @@ int Application::run()
         if (front_id != -1) glUniform4f(front_id , cam.front.x, cam.front.y, cam.front.z,cam.front.w);
         if (up_id  != -1) glUniform4f(up_id, cam.up.x, cam.up.y, cam.up.z,cam.up.w);
         if (right_id != -1) glUniform4f(right_id, cam.right.x, cam.right.y, cam.right.z,cam.right.w);
-
+        
         glDisable(GL_DEPTH_TEST);
 
 
